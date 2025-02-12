@@ -101,10 +101,10 @@ def main():
             screenshot = sct.grab(monitor)
 
             # Convertir captura a un array de numpy
-            screenshot = np.array(screenshot)
+            screenshot_array = np.array(screenshot)
 
             # Convertir captura a RGB
-            screenshot = cv2.cvtColor(screenshot, cv2.COLOR_BGRA2BGR)
+            screenshot_rgb = cv2.cvtColor(screenshot_array, cv2.COLOR_BGRA2BGR)
 
 
             acceleration = "none"
@@ -118,7 +118,7 @@ def main():
                     direction = key  # Guarda 'a' o 'd'
 
 
-            annotated_frame = draw_static_lanes(screenshot)
+            annotated_frame = draw_static_lanes(screenshot_rgb)
 
             # Mostrar la captura con las detecciones
             cv2.imshow("Captura", annotated_frame)
