@@ -53,6 +53,7 @@ LINE_Y = 300
 screen_width, screen_height = pyautogui.size()
 monitor = {"top": 0, "left": 0, "width": screen_width, "height": screen_height}
 sct = mss()
+
 # Función para capturar frames
 def on_press(key_pressed):
     try:
@@ -86,26 +87,16 @@ listener.start()
 
 # Funcion para realizar toma de datos.
 def main():
-    # Definimos variables globales
     global COUNTER, acceleration_message, direction_message
     try:
         # Mientras no detengamos o presionemos "q", el bucle se seguirá ejecutando
         while True:
-            # Obtener el tiempo actual
             timestamp = time.time()
 
-            # Ruta de la captura
             screenshot_path = os.path.join(output_dir, f"frame_{timestamp}.png")
-
-            # Capturar pantalla
             screenshot = sct.grab(monitor)
-
-            # Convertir captura a un array de numpy
             screenshot_array = np.array(screenshot)
-
-            # Convertir captura a RGB
             screenshot_rgb = cv2.cvtColor(screenshot_array, cv2.COLOR_BGRA2BGR)
-
 
             acceleration = "none"
             direction = "none"
@@ -120,13 +111,9 @@ def main():
 
             annotated_frame = draw_static_lanes(screenshot_rgb)
 
-            # Mostrar la captura con las detecciones
             cv2.imshow("Captura", annotated_frame)
-
-            # Guardar la captura con la acción
             cv2.imwrite(output_dir, annotated_frame)
 
-            # Guardar la acción en el archivo CSV
             csv_writer.writerow([timestamp, "keys", acceleration, direction, screenshot_path])
             csv_file.flush()
 
@@ -154,16 +141,13 @@ def main():
             if cv2.waitKey(1) & 0xFF == ord('q') or COUNTER == 8000:
                 break
 
-        # Liberar recursos de OpenCV
         cv2.destroyAllWindows()
     except KeyboardInterrupt:
         print("Captura detenida por el usuario.")
     finally:
-        # Cerrar el archivo CSV y detener el listener
         csv_file.close()
         listener.stop()
 
-        # Imprimir mensaje de finalización
         print("Se guardaron" + str(COUNTER) + " capturas en " + output_dir)
 
 if __name__ == "__main__":

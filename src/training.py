@@ -49,37 +49,27 @@ class ActionDataset(Dataset):
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
 
-        # Cargar imagen desde la ruta en el dataset
         img_path = row['screenshot_path']
-
-        # Cargar imagen con OpenCV
         img = cv2.imread(img_path)
 
-        # Devolver error si la imagen no se encuentra
         if img is None:
             raise FileNotFoundError(f"Image not found at {img_path}")
 
-        # Convertir de BGR a RGB
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        # Aplicar transformaciones si existen
         if self.transform:
             img = self.transform(img)
 
-        # Obtener etiquetas de aceleración y dirección
         acceleration = row['aceleration']
         direction = row['direction']
 
-        # Convertir etiquetas a tensores
         w = 1.0 if acceleration == 'w' else 0.0
         s = 1.0 if acceleration == 's' else 0.0
         a = 1.0 if direction == 'a' else 0.0
         d = 1.0 if direction == 'd' else 0.0
 
-        # Crear tensor de etiquetas
         target = torch.tensor([w, s, a, d], dtype=torch.float32)
 
-        # Devolver imagen y etiquetas
         return img, target
 
 # Modelo de red neuronal
@@ -134,14 +124,12 @@ class MultiTaskLoss(nn.Module):
 
 # Transformaciones de imagen
 def get_transforms(is_train=True):
-    # Transformaciones iniciales
     transform_list = [
         transforms.ToPILImage(),
         transforms.Resize(256),
         transforms.CenterCrop(224)
     ]
 
-    # Aumentación de datos
     if is_train:
         transform_list += [
             transforms.RandomHorizontalFlip(p=0.5),
@@ -152,7 +140,6 @@ def get_transforms(is_train=True):
             transforms.RandomAffine(degrees=15, translate=(0.25, 0.25)),
         ]
 
-    # Transformaciones finales
     transform_list += [
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -163,118 +150,82 @@ def get_transforms(is_train=True):
 
 # Entrenamiento con validación cruzada
 def train_kfold(csv_path, num_folds=5, num_epochs=50):
-    # Cargar dataset completo
     full_dataset = ActionDataset(csv_path, transform=get_transforms(is_train=True))
-    # Validación cruzada
     kfold = KFold(n_splits=num_folds, shuffle=True)
 
-    # Iterar sobre cada fold
     for fold, (train_idx, val_idx) in enumerate(kfold.split(full_dataset)):
-        # Imprimir información del fold
         print(f"\n=== Fold {fold + 1}/{num_folds} ===")
 
-        # Crear dataloaders de entrenamiento y validación
-        # Entrenamiento
         train_loader = DataLoader(Subset(full_dataset, train_idx),
                                   batch_size=64,
                                   shuffle=True,
                                   num_workers=4,
                                   pin_memory=True)
 
-        # Validación
         val_loader = DataLoader(Subset(full_dataset, val_idx),
                                 batch_size=128,
                                 shuffle=False,
                                 num_workers=2,
                                 pin_memory=True)
 
-        # Crear modelo con optimizador, programador de tasa de aprendizaje y función de pérdida
         model = ResNet18DrivingModel().to(device)
 
-        # Optimizador AdamW
         optimizer = optim.AdamW(model.parameters(),
                                 lr=1e-4,
                                 weight_decay=1e-3)
 
-        # Programador de tasa de aprendizaje
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3)
 
-        # Función de pérdida
         criterion = MultiTaskLoss()
 
-        # Variables para early stopping en caso de no mejorar
         best_val_loss = float('inf')
 
-        # Paciencia para detener el entrenamiento, se toma como referencia el valor de validación mas bajo.
-        # Si no mejora en 10 iteraciones se detiene
         patience = 10
         patience_counter = 0
 
         # Entrenamiento por épocas
         for epoch in range(num_epochs):
-            # Inicializar modelo en modo de entrenamiento
             model.train()
 
-            # Definir la variable para la pérdida de entrenamiento
             train_loss = 0.0
 
-            # Iterar sobre los datos de entrenamiento
             for images, targets in train_loader:
-                # Mover datos al dispositivo de cómputo
                 images, targets = images.to(device), targets.to(device)
-                # Reiniciar gradientes
                 optimizer.zero_grad()
-                # Propagación hacia adelante
                 outputs = model(images)
-                # Calcular pérdida
                 loss = criterion(outputs, targets)
-                # Propagación hacia atrás
                 loss.backward()
-                # Clip de gradientes
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                # Actualizar parámetros
                 optimizer.step()
-
-                # Acumular pérdida
                 train_loss += loss.item()
 
             # Validación
             model.eval()
-            # Definir la variable para la pérdida de validación
+
             val_loss = 0.0
 
             # Deshabilitar cálculo de gradientes
             with torch.no_grad():
-                # Iterar sobre los datos de validación
                 for images, targets in val_loader:
-                    # Mover datos al dispositivo de cómputo
                     images, targets = images.to(device), targets.to(device)
-                    # Calcular pérdida
                     val_loss += criterion(model(images), targets).item()
 
-            # Calcular pérdidas promedio de entrenamiento
             avg_train_loss = train_loss / len(train_loader)
-            # Calcular pérdidas promedio de validación
             avg_val_loss = val_loss / len(val_loader)
-            # Ajustar tasa de aprendizaje
             scheduler.step(avg_val_loss)
 
-            # Imprimir información de la época
             print(f"Epoch {epoch + 1:02d}/{num_epochs} | "
                   f"Train Loss: {avg_train_loss:.4f} | "
                   f"Val Loss: {avg_val_loss:.4f} | "
                   f"LR: {optimizer.param_groups[0]['lr']:.2e}")
 
-            # Guardar el mejor modelo y reiniciar contador de paciencia
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 torch.save(model.state_dict(), f"best_fold{fold + 1}.pth")
                 patience_counter = 0
             else:
-                # Incrementar contador de paciencia si el modelo no mejora con respecto a la mejor pérdida
                 patience_counter += 1
 
-                # Detener entrenamiento si se supera la paciencia
                 if patience_counter >= patience:
                     print(f"Early stopping at epoch {epoch + 1}")
                     break
